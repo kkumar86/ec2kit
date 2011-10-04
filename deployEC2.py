@@ -54,7 +54,7 @@ class ManageEC2(object):
     def launchInstances(self):
         log.info('Starting {0} EC2 instances of type {1} with image {2}'.format(self.num_nodes, self.os, self.ami))
         conn = EC2Connection(self.aws_access_key_id,self.aws_secret_access_key)
-        reservation = None
+
         reservation = conn.run_instances(self.ami, max_count = int(self.num_nodes), key_name = self.key_name,
                                          security_groups = [self.security_groups], instance_type = self.instance_type,
                                          placement = self.zone)
@@ -64,7 +64,6 @@ class ManageEC2(object):
         self.wait_for_instances_to_boot(reservation)
 
         return conn, reservation
-        #finally:
 
     @staticmethod
     def wait_for_instances_to_boot(reservation, timeout_in_seconds=300):
