@@ -1,3 +1,11 @@
+Setup config file to include your AWS credentials:
+[Credentials]
+aws_access_key_id
+aws_secret_access_key
+
+Getting AWS credentials:
+http://docs.amazonwebservices.com/AWSEC2/latest/UserGuide/
+
 Syntax: deployEC2.py [options]
 
 Options:
