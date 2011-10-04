@@ -10,7 +10,7 @@ import logger
 import getopt
 import ConfigParser
 
-SSH_OPTS        = '-o StrictHostKeyChecking=no -i /home/takaitra/.ec2/takaitra-aws-key.pem'
+SSH_OPTS        = '-o StrictHostKeyChecking=no -i '
 log = logger.new_logger("deployEC2")
 
 class ManageEC2(object):
