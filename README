@@ -1,0 +1,7 @@
+Syntax: deployEC2.py [options]
+
+Options:
+ -i <config_file>        Path to .conf file containing EC2 information
+
+Examples:
+ scripts/ec2/deployEC2.py -i /etc/boto.cfg
