@@ -6,10 +6,14 @@ aws_secret_access_key
 Getting AWS credentials:
 http://docs.amazonwebservices.com/AWSEC2/latest/UserGuide/
 
+Launches EC2 Servers and returns a INI file with the list of servers instantiated
+
 Syntax: deployEC2.py [options]
 
 Options:
+ -h                      Help
  -l <config_file>        Path to .conf file containing EC2 information
+ -f <output_filename>    Path to .ini file which is outputted, default servers.ini
 
 Examples:
- python deployEC2.py -l /etc/boto.cfg
+ python deployEC2.py -l /etc/boto.cfg -f my_ec2.ini

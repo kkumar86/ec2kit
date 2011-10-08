@@ -85,7 +85,7 @@ class ManageEC2(object):
         ids = []
         for i in range(len(reservation.instances)):
             ids.append(reservation.instances[i].id)
-        return ids
+        return ManageEC2.utf8_decode_list(ids)
     
     @staticmethod
     def get_instance_public_dns(reservation=None):
@@ -97,8 +97,8 @@ class ManageEC2(object):
 
     def terminate_instances(self, conn, reservation):
         ids = self.get_instances(reservation)
-        log.info("Terminate instances {0}".format(ManageEC2.utf8_decode_list(ids)))
         conn.terminate_instances(instance_ids=ids)
+        log.info("Terminate instances {0}".format(ids))
 
     @staticmethod
     def utf8_decode_list(l):
