@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+#TODO
+# Error handling
+# EBS Support
 
 import sys
 sys.path.append(".")
@@ -39,17 +42,17 @@ class ManageEC2(object):
         self.aws_secret_access_key = config.get('Credentials','aws_secret_access_key')
         self.key_name = config.get('Key','key_name')
         self.instance_type = config.get('Instance','instance_type')
-        self.zone = config.get('Instance','zone')
+        self.zone = config.get('Instance','zone', default='us-east-1c')
         self.security_groups = config.get('Instance','security_groups')
 
         self.os = config.get('Type','os')
         self.num_nodes = config.get('Type','num_nodes')
         self.ami = config.get('AMI',self.os)
-        self.membase_port = config.get('global', 'port')
-        self.ssh_username = config.get('global', 'username')
-        self.ssh_key_path = config.get('global', 'ssh_key')
-        self.rest_username = config.get('membase','rest_username')
-        self.rest_password = config.get('membase','rest_password')
+        self.membase_port = config.get('global', 'port', default='8091')
+        self.ssh_username = config.get('global', 'username', default='root')
+        self.ssh_key_path = config.get('global', 'ssh_key', default='/root/.ssh/QAkey.pem')
+        self.rest_username = config.get('membase','rest_username', default='Administrator')
+        self.rest_password = config.get('membase','rest_password', default='password')
 
     def launchInstances(self):
         log.info('Starting {0} EC2 instances of type {1} with image {2}'.format(self.num_nodes, self.os, self.ami))
@@ -59,8 +62,8 @@ class ManageEC2(object):
                                          security_groups = [self.security_groups], instance_type = self.instance_type,
                                          placement = self.zone)
         log.info('ReservationID: {0}'.format(reservation.id))
-        log.info('Instances: {0}'.format(self.get_instances(reservation)))
-        #wait for instances to become green
+        log.info('Instances: {0}'.format(ManageEC2.utf8_decode_list(self.get_instances(reservation))))
+        #wait for instances to boot up
         self.wait_for_instances_to_boot(reservation)
 
         return conn, reservation
@@ -89,32 +92,42 @@ class ManageEC2(object):
         public_dns = []
         for i in range(len(reservation.instances)):
             public_dns.append(reservation.instances[i].public_dns_name)
-        log.info("Public IPs: {0}".format(public_dns))
+        log.info("Public IPs: {0}".format(ManageEC2.utf8_decode_list(public_dns)))
         return public_dns
 
     def terminate_instances(self, conn, reservation):
         ids = self.get_instances(reservation)
-        log.info("Terminate instances {0}".format(ids))
+        log.info("Terminate instances {0}".format(ManageEC2.utf8_decode_list(ids)))
         conn.terminate_instances(instance_ids=ids)
+
+    @staticmethod
+    def utf8_decode_list(l):
+        new_list = []
+        for item in l:
+            if isinstance(item, unicode):
+                new_list.append(item.encode('utf-8'))
+        return new_list
 
 
 def usage(err=None):
     print """\
-Creates a INI file with list of Servers (servers.ini)
+Launches EC2 Servers and returns a INI file with the list of servers instantiated
 
 Syntax: deployEC2.py [options]
 
 Options:
+ -h                      Help
  -l <config_file>        Path to .conf file containing EC2 information
+ -f <output_filename>    Path to .ini file which is outputted, default servers.ini
 
 Examples:
- python deployEC2.py -l /etc/boto.cfg
+ python deployEC2.py -l /etc/boto.cfg -f my_ec2.ini
 
 """
     sys.exit(err)
 
-def write_config(filename, public_dns):
-        FILE = open(filename, "w")
+def write_config(filepath, public_dns):
+
         config = ConfigParser.SafeConfigParser()
         config.add_section("global")
         config.set("global", "username", ec2.ssh_username)
@@ -129,30 +142,38 @@ def write_config(filename, public_dns):
         config.set("membase", "rest_password", ec2.rest_password)
 
         # write to file
+        FILE = open(filepath, "w")
+        log.info("Writing server information into {0}".format(filepath))
         config.write(FILE)
         FILE.close()
 
 if __name__ == "__main__":
     ec2 = ManageEC2()
+    filepath = "./servers.ini"
     try:
-        (opts, args) = getopt.getopt(sys.argv[1:], 'hl:', [])
+        (opts, args) = getopt.getopt(sys.argv[1:], 'hl:f:', [])
         for options, argument in opts:
             if options == "-h":
                 usage()
             if options == "-l":
                 ec2.loadConfig(path=argument)
+            if options == "-f":
+                filepath = argument
     except IndexError:
         usage()
     except getopt.GetoptError, err:
         usage("ERROR: " + str(err))
     conn = None
     reservation = None
-    filename = "./servers.ini"
+
     try:
         conn, reservation = ec2.launchInstances()
-        write_config(filename, ManageEC2.get_instance_public_dns(reservation))
-    finally:
-        if reservation is None:
-            log.info("No connection object")
-            sys.exit(1)
+        write_config(filepath, ManageEC2.get_instance_public_dns(reservation))
         ec2.terminate_instances(conn, reservation)
+    except Exception as ex:
+        log.error("Exception {0}".format(ex))
+        if reservation is None:
+            log.error("No connection object")
+        else:
+            ec2.terminate_instances(conn, reservation)
+        sys.exit(1)
