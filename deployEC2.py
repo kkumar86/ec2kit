@@ -149,7 +149,7 @@ def write_config(filepath, public_dns):
 
 if __name__ == "__main__":
     ec2 = ManageEC2()
-    filepath = "./servers.ini"
+    filepath = "servers.ini"
     try:
         (opts, args) = getopt.getopt(sys.argv[1:], 'hl:f:', [])
         for options, argument in opts:
@@ -169,7 +169,6 @@ if __name__ == "__main__":
     try:
         conn, reservation = ec2.launchInstances()
         write_config(filepath, ManageEC2.get_instance_public_dns(reservation))
-        ec2.terminate_instances(conn, reservation)
     except Exception as ex:
         log.error("Exception {0}".format(ex))
         if reservation is None:
