@@ -34,6 +34,8 @@ class ManageEC2(object):
         self.membase_port = None
         self.rest_username = None
         self.rest_password = None
+        self.num_ebs = None
+        self.ebs_size = None
 
     def loadConfig(self, path=None):
         # Get all the Configuration
@@ -46,8 +48,10 @@ class ManageEC2(object):
         self.security_groups = config.get('Instance','security_groups')
 
         self.os = config.get('Type','os')
-        self.num_nodes = config.get('Type','num_nodes')
+        self.num_nodes = int(config.get('Type','num_nodes'))
         self.ami = config.get('AMI',self.os)
+        self.ebs_size = int(config.get('EBS','volume_size', default=0))
+        self.num_ebs = int(config.get('EBS','volumes', default=0))
         self.membase_port = config.get('global', 'port', default='8091')
         self.ssh_username = config.get('global', 'username', default='root')
         self.ssh_key_path = config.get('global', 'ssh_key', default='/root/.ssh/QAkey.pem')
@@ -56,17 +60,34 @@ class ManageEC2(object):
 
     def launchInstances(self):
         log.info('Starting {0} EC2 instances of type {1} with image {2}'.format(self.num_nodes, self.os, self.ami))
-        conn = EC2Connection(self.aws_access_key_id,self.aws_secret_access_key)
+        try:
+            conn = EC2Connection(self.aws_access_key_id, self.aws_secret_access_key)
 
-        reservation = conn.run_instances(self.ami, max_count = int(self.num_nodes), key_name = self.key_name,
+            reservation = conn.run_instances(self.ami, max_count = self.num_nodes, key_name = self.key_name,
                                          security_groups = [self.security_groups], instance_type = self.instance_type,
                                          placement = self.zone)
-        log.info('ReservationID: {0}'.format(reservation.id))
-        log.info('Instances: {0}'.format(ManageEC2.utf8_decode_list(self.get_instances(reservation))))
-        #wait for instances to boot up
-        self.wait_for_instances_to_boot(reservation)
+            log.info('ReservationID: {0}'.format(reservation.id))
+            log.info('Instances: {0}'.format(ManageEC2.get_instances(reservation)))
+            #wait for instances to boot up
+            self.wait_for_instances_to_boot(reservation)
+            if self.num_ebs > 0:
+                ManageEC2.launchEBS(conn, reservation, self)
+        finally:
+            return conn, reservation
 
-        return conn, reservation
+    @staticmethod
+    def launchEBS(conn, reservation, self):
+        ebs = []
+        total_ebs = self.num_ebs * self.num_nodes
+        log.info("Launching {0} EBS volumes in zone {1}".format(total_ebs, self.zone))
+        while total_ebs > 0 :
+            ebs_id = conn.create_volume(self.ebs_size, self.zone)
+            log.info("EBS volume created {0}".format(ebs_id.id))
+            ebs.append(ebs_id.id)
+            total_ebs -= 1
+        ebs = ManageEC2.utf8_decode_list(ebs)
+        log.info("EBS volume ids {0}".format(ebs))
+        ManageEC2.attach_ebs(conn, ManageEC2.get_instances(reservation), ebs, self.num_ebs)
 
     @staticmethod
     def wait_for_instances_to_boot(reservation, timeout_in_seconds=300):
@@ -95,6 +116,14 @@ class ManageEC2(object):
         log.info("Public IPs: {0}".format(ManageEC2.utf8_decode_list(public_dns)))
         return public_dns
 
+    @staticmethod
+    def get_instance_private_dns(reservation=None):
+        private_dns = []
+        for i in range(len(reservation.instances)):
+            private_dns.append(reservation.instances[i].private_dns_name)
+        log.info("Private IPs: {0}".format(ManageEC2.utf8_decode_list(private_dns)))
+        return private_dns
+
     def terminate_instances(self, conn, reservation):
         ids = self.get_instances(reservation)
         conn.terminate_instances(instance_ids=ids)
@@ -108,6 +137,27 @@ class ManageEC2(object):
                 new_list.append(item.encode('utf-8'))
         return new_list
 
+    @staticmethod
+    def attach_ebs(conn=None, instance_ids=[], volumes=[], num_ebs_per_node=0):
+        print conn, instance_ids, volumes, num_ebs_per_node
+        if conn is None:
+            log.error("No EC2 Connection")
+            sys.exit(1)
+        log.info("Will try to attach {0} to {1}".format(volumes, instance_ids))
+        devices = ['f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p']
+        i = 0
+        for instance in instance_ids:
+            j = 0
+            print instance, num_ebs_per_node
+            while j < num_ebs_per_node :
+                ready = conn.attach_volume(volumes[i], instance, device = '/dev/sd'+devices[j])
+                print ready
+                if ready:
+                    log.info("Attached {0} to {1}".format(volumes[i], instance))
+                    i += 1
+                    j += 1
+                else:
+                    log.error("Unable to attach {0} to {1}".format(volumes[i], instance))
 
 def usage(err=None):
     print """\
@@ -126,7 +176,7 @@ Examples:
 """
     sys.exit(err)
 
-def write_config(filepath, public_dns):
+def write_config(filepath, dns, public_dns):
 
         config = ConfigParser.SafeConfigParser()
         config.add_section("global")
@@ -135,8 +185,9 @@ def write_config(filepath, public_dns):
         config.set("global", "port", ec2.membase_port)
 
         config.add_section("servers")
-        for i in range(len(public_dns)):
-            config.set("servers", str(i+1), public_dns[i].encode('utf-8'))
+        for i in range(len(dns)):
+            config.set("servers", "# "+str(i+1), public_dns[i].encode('utf-8'))
+            config.set("servers", str(i+1), dns[i].encode('utf-8'))
         config.add_section("membase")
         config.set("membase", "rest_username", ec2.rest_username)
         config.set("membase", "rest_password", ec2.rest_password)
@@ -168,7 +219,9 @@ if __name__ == "__main__":
 
     try:
         conn, reservation = ec2.launchInstances()
-        write_config(filepath, ManageEC2.get_instance_public_dns(reservation))
+        write_config(filepath, ManageEC2.get_instance_private_dns(reservation), ManageEC2.get_instance_public_dns(reservation))
+        #ec2.terminate_instances(conn, reservation)
+
     except Exception as ex:
         log.error("Exception {0}".format(ex))
         if reservation is None:
