@@ -62,10 +62,10 @@ class ManageEC2(object):
         log.info('Starting {0} EC2 instances of type {1} with image {2}'.format(self.num_nodes, self.os, self.ami))
         try:
             conn = EC2Connection(self.aws_access_key_id, self.aws_secret_access_key)
-
             reservation = conn.run_instances(self.ami, max_count = self.num_nodes, key_name = self.key_name,
                                          security_groups = [self.security_groups], instance_type = self.instance_type,
                                          placement = self.zone)
+
             log.info('ReservationID: {0}'.format(reservation.id))
             log.info('Instances: {0}'.format(ManageEC2.get_instances(reservation)))
             #wait for instances to boot up
@@ -201,6 +201,9 @@ def write_config(filepath, dns, public_dns):
 if __name__ == "__main__":
     ec2 = ManageEC2()
     filepath = "servers.ini"
+    conn = None
+    reservation = None
+
     try:
         (opts, args) = getopt.getopt(sys.argv[1:], 'hl:f:', [])
         for options, argument in opts:
@@ -214,13 +217,10 @@ if __name__ == "__main__":
         usage()
     except getopt.GetoptError, err:
         usage("ERROR: " + str(err))
-    conn = None
-    reservation = None
 
     try:
         conn, reservation = ec2.launchInstances()
         write_config(filepath, ManageEC2.get_instance_private_dns(reservation), ManageEC2.get_instance_public_dns(reservation))
-        #ec2.terminate_instances(conn, reservation)
 
     except Exception as ex:
         log.error("Exception {0}".format(ex))
