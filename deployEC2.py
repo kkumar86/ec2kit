@@ -46,6 +46,7 @@ class ManageEC2(object):
         self.instance_type = config.get('Instance','instance_type')
         self.zone = config.get('Instance','zone', default='us-east-1c')
         self.security_groups = config.get('Instance','security_groups')
+        self.tags = config.get('Instance', 'tags')
 
         self.os = config.get('Type','os')
         self.num_nodes = int(config.get('Type','num_nodes'))
@@ -70,6 +71,7 @@ class ManageEC2(object):
             log.info('Instances: {0}'.format(ManageEC2.get_instances(reservation)))
             #wait for instances to boot up
             self.wait_for_instances_to_boot(reservation)
+            self.create_instance_tags(reservation, prefix=self.tags)
             if self.num_ebs > 0:
                 ManageEC2.launchEBS(conn, reservation, self)
         finally:
@@ -88,6 +90,13 @@ class ManageEC2(object):
         ebs = ManageEC2.utf8_decode_list(ebs)
         log.info("EBS volume ids {0}".format(ebs))
         ManageEC2.attach_ebs(conn, ManageEC2.get_instances(reservation), ebs, self.num_ebs)
+
+    @staticmethod
+    def create_instance_tags(reservation, prefix):
+        log.info("Creating instance tags with prefix {0}".format(prefix))
+        for i in range(len(reservation.instances)):
+            current_instance = reservation.instances[i]
+            current_instance.add_tag('Name', prefix+'-{0}'.format(i))
 
     @staticmethod
     def wait_for_instances_to_boot(reservation, timeout_in_seconds=300):
